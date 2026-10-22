@@ -3,12 +3,14 @@
 // Стратегія: віддаємо з кешу миттєво, у фоні оновлюємо (нова версія — з наступного запуску).
 // Після змін у файлах збільшуй номер версії.
 const PREFIX = 'spike-pult-';
-const CACHE = PREFIX + 'v3';
+const CACHE = PREFIX + 'v4';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 const OWN = new Set(ASSETS.map(a => new URL(a, self.registration.scope).href));
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  // cache: 'reload' — в обхід HTTP-кешу GitHub Pages (~10 хв), інакше нова версія
+  // service worker могла б закешувати старий index.html.
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })))));
   self.skipWaiting();
 });
 
@@ -30,7 +32,7 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     caches.open(CACHE).then(async cache => {
       const cached = await cache.match(e.request, { ignoreSearch: true });
-      const fresh = fetch(e.request)
+      const fresh = fetch(e.request.url, { cache: 'no-cache' })
         .then(res => { if (res.ok) cache.put(e.request, res.clone()); return res; })
         .catch(() => null);
       if (cached) { e.waitUntil(fresh); return cached; }

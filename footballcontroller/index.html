@@ -115,8 +115,11 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <div class="chk">
     <label><input type="checkbox" data-k="invT"> Інверсія газу (нахил)</label>
     <label><input type="checkbox" data-k="invS"> Інверсія повороту (нахил)</label>
+    <label><input type="checkbox" data-k="auto"> Автозапуск програми при підключенні</label>
   </div>
-  <button id="close">Готово</button>
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <button id="close">Готово</button><span style="color:var(--dim);font-size:13px">версія <b id="ver"></b></span>
+  </div>
 </dialog>
 
 <script>
@@ -129,7 +132,8 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
 
 // ---------- налаштування ----------
-const DEF = { max: 100, tilt: 25, dz: 4, turn: 0.7, expo: 0.5, invT: false, invS: false, mode: 'stick', swap: false, tab: 'pad' };
+const VERSION = '4';
+const DEF = { max: 100, tilt: 25, dz: 4, turn: 0.7, expo: 0.5, invT: false, invS: false, mode: 'stick', swap: false, tab: 'pad', auto: true };
 const cfg = { ...DEF };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('spikePult') || '{}')); } catch (e) {}
 const save = () => { try { localStorage.setItem('spikePult', JSON.stringify(cfg)); } catch (e) {} };
@@ -155,6 +159,9 @@ async function connect() {
     try { await c.startNotifications(); } catch (e) {}
     chr = c; busy = false; pending = null; rx = '';
     wake(); buzz(40); ui();
+    // Автозапуск програми: хаб видно лише поки програма НЕ запущена,
+    // тож після підключення запускаємо її самі.
+    if (cfg.auto) setTimeout(() => { if (chr && !running) cmd([0x01, 0x00]); }, 800);
   } catch (e) {
     console.warn(e); chr = null; ui();
     status('Не підключено: ' + (e.message || e), 'bad');
@@ -310,7 +317,8 @@ function parseLine(line) {
   const now = performance.now();
   tele = {
     t: now, mv: +p[1], ma: +p[2], cl: +p[3], cr: +p[4],
-    E: parseMotor(p[5]), F: parseMotor(p[6]), B: parseMotor(p[7]), ks: +p[8]
+    E: parseMotor(p[5]), F: parseMotor(p[6]), B: parseMotor(p[7]), ks: +p[8],
+    cal: p.length > 9 ? +p[9] : null, rng: p.length > 10 ? +p[10] : 0
   };
   teleTimes.push(now); while (teleTimes.length && now - teleTimes[0] > 3000) teleTimes.shift();
   if (stats.minV == null || tele.mv < stats.minV) stats.minV = tele.mv;
@@ -365,8 +373,12 @@ function renderTele() {
   // Кікер
   const b = tele.B;
   if (!b) setCard('cB', 'bad', 'немає мотора', '—', 'перевір кабель', 'ударів: ' + stats.kicks, 0);
-  else setCard('cB', b.st ? 'warn' : 'ok', KICK_STATES[tele.ks] || '—', b.spd + ' °/с',
-    'навант. ' + b.load + ' · застрягань: ' + stats.stallB, 'ударів: ' + stats.kicks, Math.abs(b.load) / 2);
+  else {
+    const uncal = tele.cal === 0;
+    setCard('cB', uncal || b.st ? 'warn' : 'ok', uncal ? 'без калібровки' : (KICK_STATES[tele.ks] || '—'),
+      tele.rng ? 'хід ' + tele.rng + '°' : (uncal ? 'упори не знайдено' : b.spd + ' °/с'),
+      'навант. ' + b.load + ' · застрягань: ' + stats.stallB, 'ударів: ' + stats.kicks, Math.abs(b.load) / 2);
+  }
 }
 setInterval(() => { if (cfg.tab === 'tele') renderTele(); ui(); }, 200);
 
@@ -435,6 +447,7 @@ dlg.querySelectorAll('input[type=checkbox]').forEach(i => {
   i.onchange = () => { cfg[k] = i.checked; save(); };
 });
 
+$('ver').textContent = VERSION;
 ui();
 
 // ---------- офлайн (PWA) ----------

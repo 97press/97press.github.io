@@ -1,0 +1,40 @@
+// Офлайн-кеш пульта. Обробляє ЛИШЕ власні файли пульта, решту запитів
+// на домені не чіпає — сусідні сайти на тому ж github.io не постраждають.
+// Стратегія: віддаємо з кешу миттєво, у фоні оновлюємо (нова версія — з наступного запуску).
+// Після змін у файлах збільшуй номер версії.
+const PREFIX = 'spike-pult-';
+const CACHE = PREFIX + 'v2';
+const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+const OWN = new Set(ASSETS.map(a => new URL(a, self.registration.scope).href));
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys()
+      // видаляємо лише старі версії СВОГО кешу, чужі кеші домену не чіпаємо
+      .then(keys => Promise.all(keys.filter(k => k.startsWith(PREFIX) && k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  url.search = ''; url.hash = '';
+  if (!OWN.has(url.href)) return;          // не наш файл — браузер обробить сам
+
+  e.respondWith(
+    caches.open(CACHE).then(async cache => {
+      const cached = await cache.match(e.request, { ignoreSearch: true });
+      const fresh = fetch(e.request)
+        .then(res => { if (res.ok) cache.put(e.request, res.clone()); return res; })
+        .catch(() => null);
+      if (cached) { e.waitUntil(fresh); return cached; }
+      return (await fresh) || new Response('Офлайн: ресурс не закешовано', { status: 503 });
+    })
+  );
+});

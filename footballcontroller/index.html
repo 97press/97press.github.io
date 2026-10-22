@@ -100,7 +100,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     <div class="card" id="cF"><h4>Праве колесо · F <span class="chip">—</span></h4><div class="big">—</div><div class="row2"><span>—</span><span>—</span></div><div class="meter"><i></i></div></div>
     <div class="card" id="cB"><h4>Кікер · B <span class="chip">—</span></h4><div class="big">—</div><div class="row2"><span>—</span><span>—</span></div><div class="meter"><i></i></div></div>
   </div>
-  <div class="foot"><span id="tNote">Телеметрія приходить, лише коли програма працює і пульт підключено.</span><button id="tReset">Скинути лічильники</button></div>
+  <div class="foot"><span id="tNote">Телеметрія приходить, лише коли програма працює і пульт підключено. · <b id="tVer"></b></span><button id="tReset">Скинути лічильники</button></div>
 </section>
 
 <div id="rot">Поверни телефон горизонтально ↻<br><small style="color:var(--dim)">або торкнись тут — розверну сам</small></div>
@@ -118,7 +118,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     <label><input type="checkbox" data-k="auto"> Автозапуск програми при підключенні</label>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center">
-    <button id="close">Готово</button><span style="color:var(--dim);font-size:13px">версія <b id="ver"></b></span>
+    <button id="close">Готово</button><span style="color:var(--dim);font-size:13px">пульт <b id="ver"></b> · хаб <b id="hver">—</b></span>
   </div>
 </dialog>
 
@@ -132,7 +132,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
 
 // ---------- налаштування ----------
-const VERSION = '4';
+const VERSION = '5';
 const DEF = { max: 100, tilt: 25, dz: 4, turn: 0.7, expo: 0.5, invT: false, invS: false, mode: 'stick', swap: false, tab: 'pad', auto: true };
 const cfg = { ...DEF };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('spikePult') || '{}')); } catch (e) {}
@@ -301,7 +301,7 @@ addEventListener('blur', release);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') wake(); else release(); });
 
 // ---------- телеметрія ----------
-const KICK_STATES = ['готовий', 'удар', 'повернення'];
+const KICK_STATES = ['готовий', 'удар', 'повернення', 'гальмування'];
 const stats = { drops: 0, kicks: 0, stallE: 0, stallF: 0, stallB: 0, minV: null };
 let tele = null, teleTimes = [], prevStall = { E: 0, F: 0, B: 0 };
 
@@ -318,7 +318,7 @@ function parseLine(line) {
   tele = {
     t: now, mv: +p[1], ma: +p[2], cl: +p[3], cr: +p[4],
     E: parseMotor(p[5]), F: parseMotor(p[6]), B: parseMotor(p[7]), ks: +p[8],
-    cal: p.length > 9 ? +p[9] : null, rng: p.length > 10 ? +p[10] : 0
+    cal: p.length > 9 ? +p[9] : null, rng: p.length > 10 ? +p[10] : 0, hv: p.length > 11 ? p[11] : null
   };
   teleTimes.push(now); while (teleTimes.length && now - teleTimes[0] > 3000) teleTimes.shift();
   if (stats.minV == null || tele.mv < stats.minV) stats.minV = tele.mv;
@@ -349,6 +349,8 @@ function wheel(id, m, cmdSpd, stalls) {
 }
 
 function renderTele() {
+  $('hver').textContent = tele && tele.hv ? tele.hv : '— (стара програма)';
+  $('tVer').textContent = 'пульт ' + VERSION + ' · хаб ' + (tele && tele.hv ? tele.hv : '—');
   const age = tele ? performance.now() - tele.t : Infinity;
   const fresh = age < 1000;
   // Батарея (пороги орієнтовні для акумулятора SPIKE)
@@ -435,7 +437,7 @@ $('tPad').onclick = () => { cfg.tab = 'pad'; save(); ui(); };
 $('tTele').onclick = () => { cfg.tab = 'tele'; save(); release(); ui(); renderTele(); };
 
 const dlg = $('dlg');
-$('set').onclick = () => { release(); dlg.showModal(); };
+$('set').onclick = () => { release(); renderTele(); dlg.showModal(); };
 $('close').onclick = () => dlg.close();
 dlg.querySelectorAll('input[type=range]').forEach(i => {
   const o = i.nextElementSibling, k = i.dataset.k;

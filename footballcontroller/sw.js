@@ -3,7 +3,7 @@
 // Стратегія: віддаємо з кешу миттєво, у фоні оновлюємо (нова версія — з наступного запуску).
 // Після змін у файлах збільшуй номер версії.
 const PREFIX = 'spike-pult-';
-const CACHE = PREFIX + 'v4';
+const CACHE = PREFIX + 'v5';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 const OWN = new Set(ASSETS.map(a => new URL(a, self.registration.scope).href));
 

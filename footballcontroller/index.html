@@ -69,6 +69,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 <body>
 <header>
   <button id="conn">Підключити</button>
+  <button id="pick" title="Шукати інший хаб">🔍</button>
   <span id="status"><span class="dot" id="dot"></span><span id="stxt">Не підключено</span></span>
   <button id="run" disabled title="Запустити програму на хабі">▶</button>
   <button id="halt" disabled title="Зупинити програму">■</button>
@@ -132,7 +133,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
 
 // ---------- налаштування ----------
-const VERSION = '5';
+const VERSION = '6';
 const DEF = { max: 100, tilt: 25, dz: 4, turn: 0.7, expo: 0.5, invT: false, invS: false, mode: 'stick', swap: false, tab: 'pad', auto: true };
 const cfg = { ...DEF };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('spikePult') || '{}')); } catch (e) {}
@@ -140,11 +141,12 @@ const save = () => { try { localStorage.setItem('spikePult', JSON.stringify(cfg)
 
 // ---------- BLE ----------
 let dev = null, chr = null, busy = false, pending = null, running = false, lowBat = false;
+let manual = false;   // від'єднання з нашої ініціативи — не рахуємо як розрив
 const dec = new TextDecoder();
 let rx = '';
 
 async function connect() {
-  if (chr) { dev.gatt.disconnect(); return; }
+  if (chr) { manual = true; dev.gatt.disconnect(); return; }
   if (!navigator.bluetooth) { alert('Web Bluetooth недоступний. Відкрий сторінку в Chrome на Android через HTTPS.'); return; }
   try {
     status('Підключення…', 'mid');
@@ -168,8 +170,25 @@ async function connect() {
   }
 }
 function onLost() {
-  chr = null; running = false; release(); stats.drops++; ui();
-  status('Зв’язок втрачено — натисни «Перепідключити»', 'bad'); buzz([120, 60, 120]);
+  chr = null; running = false; release();
+  if (manual) status('Відключено', '');
+  else { stats.drops++; status('Зв’язок втрачено — натисни «Перепідключити»', 'bad'); buzz([120, 60, 120]); }
+  manual = false; ui();
+}
+
+// 🔍 Інший хаб: завжди відкриває пошук. Якщо пошук скасовано — лишаємо попередній хаб.
+async function pickHub() {
+  const old = dev;
+  if (old) {
+    old.removeEventListener('gattserverdisconnected', onLost);
+    if (chr) { old.gatt.disconnect(); chr = null; running = false; release(); }
+  }
+  dev = null;
+  await connect();
+  if (!dev && old) {
+    dev = old; old.addEventListener('gattserverdisconnected', onLost);
+    ui(); status('Пошук скасовано — «Перепідключити» поверне ' + (old.name || 'попередній хаб'), 'mid');
+  }
 }
 function onNote(e) {
   const d = e.target.value, type = d.getUint8(0);
@@ -428,6 +447,7 @@ function bar(el, v) {
 function draw(l, r) { bar($('fL'), l); bar($('fR'), r); $('nL').textContent = l; $('nR').textContent = r; }
 
 $('conn').onclick = connect;
+$('pick').onclick = pickHub;
 $('run').onclick = () => cmd([0x01, 0x00]);
 $('halt').onclick = () => cmd([0x00]);
 $('mTilt').onclick = () => { cfg.mode = 'tilt'; save(); release(); ui(); };

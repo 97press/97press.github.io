@@ -133,7 +133,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
 
 // ---------- налаштування ----------
-const VERSION = '6';
+const VERSION = '7';
 const DEF = { max: 100, tilt: 25, dz: 4, turn: 0.7, expo: 0.5, invT: false, invS: false, mode: 'stick', swap: false, tab: 'pad', auto: true };
 const cfg = { ...DEF };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('spikePult') || '{}')); } catch (e) {}
@@ -163,7 +163,7 @@ async function connect() {
     wake(); buzz(40); ui();
     // Автозапуск програми: хаб видно лише поки програма НЕ запущена,
     // тож після підключення запускаємо її самі.
-    if (cfg.auto) setTimeout(() => { if (chr && !running) cmd([0x01, 0x00]); }, 800);
+    connectedAt = performance.now(); lastStart = 0; statusSeen = false; userStop = false;
   } catch (e) {
     console.warn(e); chr = null; ui();
     status('Не підключено: ' + (e.message || e), 'bad');
@@ -194,7 +194,7 @@ function onNote(e) {
   const d = e.target.value, type = d.getUint8(0);
   if (type === 0x00 && d.byteLength >= 5) {          // статус хаба
     const f = d.getUint32(1, true);
-    running = !!(f & (1 << 6)); lowBat = !!(f & 1); ui();
+    running = !!(f & (1 << 6)); lowBat = !!(f & 1); statusSeen = true; ui(); autoStart();
   } else if (type === 0x01) {                          // stdout програми
     rx += dec.decode(new Uint8Array(d.buffer, d.byteOffset + 1, d.byteLength - 1), { stream: true });
     let i;
@@ -203,6 +203,17 @@ function onNote(e) {
   }
 }
 function cmd(bytes) { pending = new Uint8Array(bytes); }
+
+// Автозапуск: щоразу, коли програма на хабі зупинилась (а не один раз після підключення).
+// Не перезапускає, якщо користувач сам натиснув ■ у пульті — до наступного ▶ або перепідключення.
+let userStop = false, lastStart = 0, connectedAt = 0, statusSeen = false;
+function autoStart() {
+  if (!cfg.auto || !chr || running || userStop || !statusSeen) return;
+  const now = performance.now();
+  if (now - connectedAt < 600 || now - lastStart < 1500) return;   // дати хабу час відповісти
+  lastStart = now;
+  cmd([0x01, 0x00]);
+}
 
 // ---------- керування ----------
 let kickOn = false, kickLatch = false;
@@ -401,7 +412,7 @@ function renderTele() {
       'навант. ' + b.load + ' · застрягань: ' + stats.stallB, 'ударів: ' + stats.kicks, Math.abs(b.load) / 2);
   }
 }
-setInterval(() => { if (cfg.tab === 'tele') renderTele(); ui(); }, 200);
+setInterval(() => { if (cfg.tab === 'tele') renderTele(); ui(); autoStart(); }, 200);
 
 $('tReset').onclick = () => {
   Object.assign(stats, { drops: 0, kicks: 0, stallE: 0, stallF: 0, stallB: 0, minV: tele ? tele.mv : null });
@@ -448,8 +459,8 @@ function draw(l, r) { bar($('fL'), l); bar($('fR'), r); $('nL').textContent = l;
 
 $('conn').onclick = connect;
 $('pick').onclick = pickHub;
-$('run').onclick = () => cmd([0x01, 0x00]);
-$('halt').onclick = () => cmd([0x00]);
+$('run').onclick = () => { userStop = false; lastStart = performance.now(); cmd([0x01, 0x00]); };
+$('halt').onclick = () => { userStop = true; cmd([0x00]); };
 $('mTilt').onclick = () => { cfg.mode = 'tilt'; save(); release(); ui(); };
 $('mStick').onclick = () => { cfg.mode = 'stick'; save(); release(); ui(); };
 $('side').onclick = () => { cfg.swap = !cfg.swap; save(); release(); ui(); buzz(15); };
